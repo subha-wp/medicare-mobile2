@@ -2,7 +2,7 @@
   "expo": {
     "name": "Medicare",
     "slug": "medicare-mobile",
-    "version": "1.0.3",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "myapp",
@@ -22,7 +22,7 @@
         "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#ffffff"
       },
-      "versionCode": 4,
+      "versionCode": 5,
       "package": "com.devcodersubha.medicaremobile",
       "permissions": [
         "ACCESS_COARSE_LOCATION",
