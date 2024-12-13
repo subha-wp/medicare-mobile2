@@ -9,14 +9,18 @@ import {
   TouchableOpacity,
   Platform,
   BackHandler,
-  Linking,
 } from "react-native";
 import { WebView } from "react-native-webview";
 import Constants from "expo-constants";
-import * as Location from "expo-location";
-import * as FileSystem from "expo-file-system";
-import * as DocumentPicker from "expo-document-picker";
-import * as Notifications from "expo-notifications";
+
+import { getCurrentLocation } from "./utils/location";
+import {
+  initializeNotifications,
+  showNotification,
+} from "./utils/notifications";
+import { handleFileUpload, handleFileDownload } from "./utils/fileHandlers";
+import { handlePhoneCall, handleOpenMaps } from "./utils/navigation";
+import { getInjectedJavaScript } from "./utils/webViewBridge";
 
 export default function RootLayout() {
   const [isError, setIsError] = useState(false);
@@ -25,32 +29,27 @@ export default function RootLayout() {
   const [userLocation, setUserLocation] = useState(null);
 
   useEffect(() => {
-    (async () => {
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status === "granted") {
-        let location = await Location.getCurrentPositionAsync({});
-        setUserLocation(location.coords);
-      } else {
-        console.log("Location permission denied");
+    const setupApp = async () => {
+      const location = await getCurrentLocation();
+      setUserLocation(location);
+      initializeNotifications();
+    };
+
+    setupApp();
+
+    const backAction = () => {
+      if (canGoBack && webViewRef.current) {
+        webViewRef.current.goBack();
+        return true;
       }
-    })();
+      return false;
+    };
 
-    if (Platform.OS === "android") {
-      BackHandler.addEventListener("hardwareBackPress", handleBackPress);
-      return () => {
-        BackHandler.removeEventListener("hardwareBackPress", handleBackPress);
-      };
-    }
+    BackHandler.addEventListener("hardwareBackPress", backAction);
 
-    // Set up notifications
-    Notifications.setNotificationHandler({
-      handleNotification: async () => ({
-        shouldShowAlert: true,
-        shouldPlaySound: false,
-        shouldSetBadge: false,
-      }),
-    });
-  }, []);
+    return () =>
+      BackHandler.removeEventListener("hardwareBackPress", backAction);
+  }, [canGoBack]);
 
   const handleError = () => {
     setIsError(true);
@@ -60,106 +59,27 @@ export default function RootLayout() {
     setIsError(false);
   };
 
-  const handleBackPress = () => {
-    if (canGoBack && webViewRef.current) {
-      webViewRef.current.goBack();
-      return true;
-    }
-    return false;
-  };
-
-  const handleFileUpload = async () => {
-    try {
-      const result = await DocumentPicker.getDocumentAsync();
-      if (result.type === "success") {
-        console.log(result.uri, result.name, result.size);
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleFileDownload = async (fileUrl, fileName) => {
-    const downloadResumable = FileSystem.createDownloadResumable(
-      fileUrl,
-      FileSystem.documentDirectory + fileName
-    );
-
-    try {
-      const { uri } = await downloadResumable.downloadAsync();
-      console.log("File has been downloaded to:", uri);
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  const handlePhoneCall = (phoneNumber) => {
-    Linking.openURL(`tel:${phoneNumber}`).catch((err) =>
-      console.error("An error occurred", err)
-    );
-  };
-
-  const handleOpenMaps = (
-    pharmacyLatitude,
-    pharmacyLongitude,
-    userLatitude,
-    userLongitude
-  ) => {
-    let url = `https://www.google.com/maps/search/?api=1&query=${pharmacyLatitude},${pharmacyLongitude}`;
-
-    if (userLatitude !== null && userLongitude !== null) {
-      if (Platform.OS === "ios") {
-        url = `http://maps.apple.com/?daddr=${pharmacyLatitude},${pharmacyLongitude}&saddr=${userLatitude},${userLongitude}`;
-      } else {
-        url = `https://www.google.com/maps/dir/?api=1&destination=${pharmacyLatitude},${pharmacyLongitude}&origin=${userLatitude},${userLongitude}`;
-      }
-    }
-
-    Linking.openURL(url).catch((err) =>
-      console.error("An error occurred", err)
-    );
-  };
-
-  const showNotification = async (title: string, body: string) => {
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title,
-        body,
-      },
-      trigger: null,
-    });
-  };
-
-  const injectedJavaScript = `
-  (function() {
-    window.ReactNativeWebView = {
-      postMessage: function(data) {
-        window.postMessage(JSON.stringify(data));
-      }
-    };
-  })();
-  `;
-
   const onMessage = (event) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
-      console.log("Received message:", data);
+      console.log("Received message from WebView:", data);
+
       switch (data.type) {
         case "phoneCall":
           handlePhoneCall(data.phone);
           break;
         case "fileUpload":
-          handleFileUpload();
+          handleFileUpload(webViewRef);
           break;
         case "fileDownload":
-          handleFileDownload(data.url, data.fileName);
+          handleFileDownload(data.url, data.fileName, webViewRef);
           break;
         case "openMaps":
           handleOpenMaps(
             data.pharmacyLatitude,
             data.pharmacyLongitude,
-            userLocation ? userLocation.latitude : null,
-            userLocation ? userLocation.longitude : null
+            userLocation?.latitude,
+            userLocation?.longitude
           );
           break;
         case "newNotification":
@@ -200,9 +120,14 @@ export default function RootLayout() {
             onNavigationStateChange={(navState) => {
               setCanGoBack(navState.canGoBack);
             }}
-            injectedJavaScript={injectedJavaScript}
+            injectedJavaScript={getInjectedJavaScript()}
             onMessage={onMessage}
             allowsBackForwardNavigationGestures={true}
+            onLoadEnd={() => {
+              webViewRef.current?.injectJavaScript(`
+                console.log('WebView bridge status:', !!window.ReactNativeWebView);
+              `);
+            }}
           />
         )}
       </SafeAreaView>
