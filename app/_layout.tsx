@@ -1,6 +1,6 @@
 //@ts-nocheck
 import React, { useState, useRef, useEffect } from "react";
-import { StatusBar, StatusBarStyle } from "expo-status-bar";
+import { StatusBar } from "expo-status-bar";
 import {
   StyleSheet,
   SafeAreaView,
@@ -9,22 +9,28 @@ import {
   TouchableOpacity,
   Platform,
   BackHandler,
+  Linking,
 } from "react-native";
 import { WebView } from "react-native-webview";
 import Constants from "expo-constants";
 import * as Location from "expo-location";
 import * as FileSystem from "expo-file-system";
 import * as DocumentPicker from "expo-document-picker";
+import * as Notifications from "expo-notifications";
 
 export default function RootLayout() {
   const [isError, setIsError] = useState(false);
   const webViewRef = useRef(null);
   const [canGoBack, setCanGoBack] = useState(false);
+  const [userLocation, setUserLocation] = useState(null);
 
   useEffect(() => {
     (async () => {
       let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") {
+      if (status === "granted") {
+        let location = await Location.getCurrentPositionAsync({});
+        setUserLocation(location.coords);
+      } else {
         console.log("Location permission denied");
       }
     })();
@@ -35,6 +41,15 @@ export default function RootLayout() {
         BackHandler.removeEventListener("hardwareBackPress", handleBackPress);
       };
     }
+
+    // Set up notifications
+    Notifications.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowAlert: true,
+        shouldPlaySound: false,
+        shouldSetBadge: false,
+      }),
+    });
   }, []);
 
   const handleError = () => {
@@ -57,9 +72,7 @@ export default function RootLayout() {
     try {
       const result = await DocumentPicker.getDocumentAsync();
       if (result.type === "success") {
-        // Handle the selected file
         console.log(result.uri, result.name, result.size);
-        // You can send this file to your web application
       }
     } catch (err) {
       console.error(err);
@@ -80,28 +93,89 @@ export default function RootLayout() {
     }
   };
 
+  const handlePhoneCall = (phoneNumber) => {
+    Linking.openURL(`tel:${phoneNumber}`).catch((err) =>
+      console.error("An error occurred", err)
+    );
+  };
+
+  const handleOpenMaps = (
+    pharmacyLatitude,
+    pharmacyLongitude,
+    userLatitude,
+    userLongitude
+  ) => {
+    let url = `https://www.google.com/maps/search/?api=1&query=${pharmacyLatitude},${pharmacyLongitude}`;
+
+    if (userLatitude !== null && userLongitude !== null) {
+      if (Platform.OS === "ios") {
+        url = `http://maps.apple.com/?daddr=${pharmacyLatitude},${pharmacyLongitude}&saddr=${userLatitude},${userLongitude}`;
+      } else {
+        url = `https://www.google.com/maps/dir/?api=1&destination=${pharmacyLatitude},${pharmacyLongitude}&origin=${userLatitude},${userLongitude}`;
+      }
+    }
+
+    Linking.openURL(url).catch((err) =>
+      console.error("An error occurred", err)
+    );
+  };
+
+  const showNotification = async (title: string, body: string) => {
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title,
+        body,
+      },
+      trigger: null,
+    });
+  };
+
   const injectedJavaScript = `
-    (function() {
-      window.ReactNativeWebView.postMessage = function(data) {
+  (function() {
+    window.ReactNativeWebView = {
+      postMessage: function(data) {
         window.postMessage(JSON.stringify(data));
-      };
-    })();
+      }
+    };
+  })();
   `;
 
   const onMessage = (event) => {
-    const data = JSON.parse(event.nativeEvent.data);
-    if (data.type === "fileUpload") {
-      handleFileUpload();
-    } else if (data.type === "fileDownload") {
-      handleFileDownload(data.url, data.fileName);
+    try {
+      const data = JSON.parse(event.nativeEvent.data);
+      console.log("Received message:", data);
+      switch (data.type) {
+        case "phoneCall":
+          handlePhoneCall(data.phone);
+          break;
+        case "fileUpload":
+          handleFileUpload();
+          break;
+        case "fileDownload":
+          handleFileDownload(data.url, data.fileName);
+          break;
+        case "openMaps":
+          handleOpenMaps(
+            data.pharmacyLatitude,
+            data.pharmacyLongitude,
+            userLocation ? userLocation.latitude : null,
+            userLocation ? userLocation.longitude : null
+          );
+          break;
+        case "newNotification":
+          showNotification(data.notification.title, data.notification.message);
+          break;
+        default:
+          console.log("Unknown message type:", data.type);
+      }
+    } catch (error) {
+      console.error("Error parsing message:", error);
     }
   };
 
-  const statusBarStyle: StatusBarStyle = "auto";
-
   return (
     <>
-      <StatusBar style={statusBarStyle} />
+      <StatusBar style="auto" />
       <SafeAreaView style={styles.container}>
         {isError ? (
           <View style={styles.errorContainer}>
@@ -116,7 +190,7 @@ export default function RootLayout() {
         ) : (
           <WebView
             ref={webViewRef}
-            source={{ uri: "https://medicare-blush.vercel.app" }}
+            source={{ uri: "https://medicare-blush.vercel.app/dashboard" }}
             style={styles.webview}
             javaScriptEnabled={true}
             domStorageEnabled={true}
@@ -128,6 +202,7 @@ export default function RootLayout() {
             }}
             injectedJavaScript={injectedJavaScript}
             onMessage={onMessage}
+            allowsBackForwardNavigationGestures={true}
           />
         )}
       </SafeAreaView>

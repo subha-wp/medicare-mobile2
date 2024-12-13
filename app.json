@@ -2,7 +2,7 @@
   "expo": {
     "name": "Medicare",
     "slug": "medicare-mobile",
-    "version": "1.0.0",
+    "version": "1.0.3",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "myapp",
@@ -11,6 +11,8 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
+        "NSUserNotificationUsageDescription": "This app uses notifications to alert you about updates and important events.",
+        "UIBackgroundModes": ["remote-notification"],
         "NSLocationWhenInUseUsageDescription": "This app needs access to location to provide relevant services.",
         "NSPhotoLibraryUsageDescription": "This app needs access to the photo library to upload files."
       }
@@ -20,13 +22,18 @@
         "foregroundImage": "./assets/images/icon.png",
         "backgroundColor": "#ffffff"
       },
-      "versionCode": 1,
+      "versionCode": 4,
       "package": "com.devcodersubha.medicaremobile",
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
         "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE"
+        "WRITE_EXTERNAL_STORAGE",
+        "VIBRATE",
+        "WAKE_LOCK",
+        "RECEIVE_BOOT_COMPLETED",
+        "ACCESS_NOTIFICATION_POLICY",
+        "POST_NOTIFICATIONS"
       ]
     },
     "web": {
